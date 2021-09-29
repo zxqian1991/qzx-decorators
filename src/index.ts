@@ -1,177 +1,178 @@
 import 'reflect-metadata';
-export default class QzxDecorator {
-    static getConstructorParamTypes<T extends new (...args: any[]) => any>(
-        target: T
-    ) {
-        return Reflect.getMetadata('design:paramtypes', target) as any[];
-    }
-    static getPropertyParamType(target: Record<string, any>, property: string) {
-        return Reflect.getMetadata('design:paramtypes', target, property);
-    }
-    static getPropertyType(target: Record<string, any>, property: string) {
-        return Reflect.getMetadata('design:type', target, property) as any;
-    }
-    static getReturnType(target: Record<string, any>, property: string) {
-        return Reflect.getMetadata(
-            'design:returntype',
-            target,
-            property
-        ) as any;
-    }
-    constructor() {}
-    createClassDecoretor<P extends Array<any>>(
-        h: (...args: P) => (t: new (...args: any[]) => any) => any = () =>
-            () => {}
-    ) {
-        return h;
-    }
-    /**
-     * 获取构造函数参数的构造器信息
-     * @param index
-     * @param target
-     * @returns
-     */
 
-    getConstructorParamDecorateInfo(
-        index: number,
-        target: new (...args: any[]) => any
-    ) {
-        const data: IConstructorParamInfo[][] =
-            Reflect.getMetadata('qzx:constructor:params', target.prototype) ||
-            [];
-        return {
-            decorators: data[index],
-            argType: QzxDecorator.getConstructorParamTypes(target)?.[index],
-        };
-    }
-    /**
-     * 获取成员函数的注解函数信息
-     * @param property
-     * @param index
-     * @param target
-     * @returns
-     */
-
-    getParamDecoratorInfo(
-        target: Record<string, any>,
-        property: string,
-        index: number
-    ) {
-        const data: { [prop: string]: IConstructorParamInfo[][] } =
-            Reflect.getMetadata('qzx:params', target) || {};
-        return {
-            decorators: data[property]?.[index],
-            argType: QzxDecorator.getPropertyParamType(target, property)[index],
-        };
-    }
-
-    getPropertyDecoratorInfo(target: Record<string, any>) {
-        const data = Reflect.getMetadata('qzx:property', target) || {};
-        return data;
-    }
-
-    createConstructorParamDecorator<P = any>(
-        name: string,
-        h: IParamHandler<P>
-    ) {
-        return (...args: any[]) =>
-            (
-                target: new (...args: any[]) => any,
-                p: undefined,
-                index: number
-            ) => {
-                if (
-                    !Reflect.hasMetadata(
-                        'qzx:constructor:params',
-                        target.prototype
-                    )
-                ) {
+type TConstructor = new (...args: any[]) => any;
+// 创建类注解
+const CLASS_DECORATOR_INFO = Symbol();
+export type IClassDecoratorHandler<P extends Array<any>> = (
+    info: IClassDecoratorInfo<P>
+) => any;
+export interface IClassDecoratorInfo<P extends Array<any>> {
+    name: string;
+    args: P;
+    constructor: new (...args: any[]) => any;
+    handler?: IClassDecoratorHandler<P>;
+}
+export function getClassDecoratorInfos(constructor: TConstructor) {
+    return (Reflect.getMetadata(CLASS_DECORATOR_INFO, constructor) ||
+        []) as IClassDecoratorInfo<any>[];
+}
+export function createClassDecorator<P extends Array<any>>(
+    name: string,
+    handler?: IClassDecoratorHandler<P>,
+    append = true
+) {
+    return (...args: P) =>
+        (constructor: TConstructor) => {
+            const info: IClassDecoratorInfo<P> = {
+                name,
+                args,
+                constructor,
+                handler,
+            };
+            if (append) {
+                if (!Reflect.hasMetadata(CLASS_DECORATOR_INFO, constructor)) {
                     Reflect.defineMetadata(
-                        'qzx:constructor:params',
+                        CLASS_DECORATOR_INFO,
                         [],
-                        target.prototype
+                        constructor
                     );
                 }
-                const data = Reflect.getMetadata(
-                    'qzx:constructor:params',
-                    target.prototype
-                ) as IConstructorParamInfo[][];
-                if (!data[index]) {
-                    data[index] = [];
-                }
-                data[index].push({ args, index, h, name });
-            };
-    }
+                const decorators = Reflect.getMetadata(
+                    CLASS_DECORATOR_INFO,
+                    constructor
+                ) as IClassDecoratorInfo<any>[];
+                decorators.push(info);
+            }
 
-    createParamTypeDecorator<P = any>(name: string, h: IParamHandler<P>) {
-        return (...args: any[]) =>
-            (target: Record<string, any>, p: string, index: number) => {
-                if (!Reflect.hasMetadata('qzx:params', target)) {
-                    Reflect.defineMetadata('qzx:params', {}, target);
-                }
-                const data = Reflect.getMetadata(
-                    'qzx:params',
-                    target.prototype
-                ) as { [prop: string]: IConstructorParamInfo[][] };
-                if (!data[p]) {
-                    data[p] = [];
-                }
-                if (!data[p][index]) {
-                    data[p][index] = [];
-                }
-                data[p][index].push({ args, index, h, name });
-            };
-    }
-    createPropertyDecorator<P = any>(name: string, h: IPropertyHandler<P>) {
-        return (...args: any[]) =>
-            (
-                target: Record<string, any>,
-                p: string,
-                descriptor: PropertyDescriptor
-            ) => {
-                if (!Reflect.hasMetadata('qzx:property', target)) {
-                    Reflect.defineMetadata('qzx:property', {}, target);
-                }
-                const data = Reflect.getMetadata('qzx:property', target);
-                if (!data[p]) {
-                    data[p] = [];
-                }
-                data[p].push({
-                    property: p,
-                    h,
-                    name,
-                    descriptor,
-                    args,
-                });
-            };
-    }
+            if (handler && typeof handler === 'function') {
+                handler(info);
+            }
+        };
 }
 
-export type IParamHandler<P> = (
-    preValue: any,
-    args: P,
-    index: number,
-    name: any,
-    type: any
+/**
+ * 处理成员注解
+ */
+const PROPERTY_DECORATOR = Symbol();
+export type IPropertyDecoratorHandler<P extends Array<any>> = (
+    info: IPropertyDecoratorInfo<P>
 ) => any;
 
-export type IPropertyHandler<P> = (
-    args: P,
-    property: string,
-    descriptor: PropertyDescriptor
-) => any;
-
-export interface IConstructorParamInfo<P = any> {
+export interface IPropertyDecoratorInfo<P extends Array<any>> {
     name: string;
     args: P;
-    index: number;
-    h: IParamHandler<P>;
-}
-
-export interface IPropertyInfo<P = any> {
-    h: IPropertyHandler<P>;
+    handler?: IPropertyDecoratorHandler<P>;
+    target: Record<string, any>;
     property: string;
     descriptor: PropertyDescriptor;
-    args: P;
+}
+export function getPropertyDecoratorInfos(target: Record<string, any>) {
+    return (Reflect.getMetadata(PROPERTY_DECORATOR, target) || {}) as Record<
+        string,
+        IPropertyDecoratorInfo<any>[]
+    >;
+}
+export function getPropertyDecoratorInfo(
+    target: Record<string, any>,
+    property: string
+) {
+    return getPropertyDecoratorInfos(target)[property] || [];
+}
+export function createPropertyDecorator<P extends Array<any>>(
+    name: string,
+    handler?: IPropertyDecoratorHandler<P>,
+    append = true
+) {
+    return (...args: P) =>
+        (
+            target: Record<string, any>,
+            property: string,
+            descriptor: PropertyDescriptor
+        ) => {
+            const info: IPropertyDecoratorInfo<P> = {
+                name,
+                args,
+                handler,
+                target,
+                property,
+                descriptor,
+            };
+            if (append) {
+                if (!Reflect.hasMetadata(PROPERTY_DECORATOR, target)) {
+                    Reflect.defineMetadata(PROPERTY_DECORATOR, {}, target);
+                }
+                const obj = Reflect.getMetadata(
+                    PROPERTY_DECORATOR,
+                    target
+                ) as Record<string, IPropertyDecoratorInfo<any>[]>;
+                if (!obj[property]) {
+                    obj[property] = [];
+                }
+                const decorators = obj[property];
+                decorators.push(info);
+            }
+
+            if (handler && typeof handler === 'function') {
+                handler(info);
+            }
+        };
+}
+
+/**
+ * 处理参数注解
+ */
+const PARAM_DECORATOR = Symbol();
+export type IParamDecoratorHandler<P extends Array<any> = any> = (
+    info: IParamDecoratorInfo<P>
+) => any;
+export interface IParamDecoratorInfo<P extends Array<any> = any> {
     name: string;
+    target: Record<string, any>;
+    property: string;
+    index: number;
+    args: P;
+    handler?: IParamDecoratorHandler<P>;
+}
+
+export function getParamDecoratorInfos(target: Record<string, any>) {
+    return (Reflect.getMetadata(PARAM_DECORATOR, target) || {}) as Record<
+        string,
+        IParamDecoratorInfo[][]
+    >;
+}
+export function getParamDecoratorInfo(
+    target: Record<string, any>,
+    property: string
+) {
+    return getParamDecoratorInfos(target)[property] || [];
+}
+
+export function createParamDecorator<P extends Array<any>>(
+    name: string,
+    handler?: (info: IParamDecoratorInfo<P>) => any
+) {
+    return (...args: P) =>
+        (target: Record<string, any>, property: string, index: number) => {
+            const info = {
+                name,
+                target,
+                property,
+                index,
+                args,
+                handler,
+            };
+            if (!Reflect.hasMetadata(PARAM_DECORATOR, target)) {
+                Reflect.defineMetadata(PARAM_DECORATOR, {}, target);
+            }
+            const obj = (Reflect.getMetadata(PARAM_DECORATOR, target) ||
+                {}) as Record<string, IParamDecoratorInfo[][]>;
+            if (!obj[property]) {
+                obj[property] = [];
+            }
+            if (!obj[property][index]) {
+                obj[property][index] = [];
+            }
+            const decorators: IParamDecoratorInfo[] = obj[property][index];
+            decorators.push(info);
+        };
 }
